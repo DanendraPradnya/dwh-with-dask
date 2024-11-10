@@ -10,6 +10,14 @@ logger = logging.getLogger(__name__)
 # Load the Excel file
 file_path = 'Data/FinancialStatement-2024-I-ACES.xlsx'
 
+# Extract the 'Kode Entitas' (emitent) from the "General information" sheet
+try:
+    general_info_df = pd.read_excel(file_path, sheet_name='1000000', header=None)  # Adjust header as needed
+    emitent_value = general_info_df.loc[general_info_df[0] == 'Kode entitas', 1].values[0]
+except Exception as e:
+    logger.error(f"Failed to extract emitent value: {e}")
+    exit(1)
+
 # Read the sheets into Pandas DataFrames
 try:
     laporan_laba_rugi_pd = pd.read_excel(file_path, sheet_name='1311000', header=1)  # Use header=1 to skip unnecessary rows
@@ -34,26 +42,41 @@ laporan_laba_rugi_pd.drop(columns=['Unnamed: 3'], inplace=True)  # Example of dr
 laporan_arus_kas_pd.drop(columns=['Unnamed: 3'], inplace=True)
 laporan_posisi_keuangan_pd.drop(columns=['Unnamed: 3'], inplace=True)
 
-# Rename
+# Add an ID column to each DataFrame
+laporan_laba_rugi_pd['ID'] = range(1, len(laporan_laba_rugi_pd) + 1)
+laporan_arus_kas_pd['ID'] = range(1, len(laporan_arus_kas_pd) + 1)
+laporan_posisi_keuangan_pd['ID'] = range(1, len(laporan_posisi_keuangan_pd) + 1)
+
+# Add the 'emitent' column to each DataFrame with the extracted value
+laporan_laba_rugi_pd['emitent'] = emitent_value
+laporan_arus_kas_pd['emitent'] = emitent_value
+laporan_posisi_keuangan_pd['emitent'] = emitent_value
+
+# Rename columns
 laba_rugi_rename_map = {
-'Unnamed: 0':'Laporan Laba Rugi',
-'Unnamed: 1':'CurrentYearInstant',
-'Unnamed: 2':'PriorYearInstant'
+    'Unnamed: 0': 'Laporan Laba Rugi',
+    'Unnamed: 1': 'CurrentYearInstant',
+    'Unnamed: 2': 'PriorYearInstant'
 }
 arus_kas_rename_map = {
-'Unnamed: 0':'Laporan Arus Kas',
-'Unnamed: 1':'CurrentYearInstant',
-'Unnamed: 2':'PriorYearInstant'
+    'Unnamed: 0': 'Laporan Arus Kas',
+    'Unnamed: 1': 'CurrentYearInstant',
+    'Unnamed: 2': 'PriorYearInstant'
 }
 posisi_keuangan_rename_map = {
-'Unnamed: 0':'Laporan Posisi Keuangan',
-'Unnamed: 1':'CurrentYearInstant',
-'Unnamed: 2':'PriorYearInstant'
+    'Unnamed: 0': 'Laporan Posisi Keuangan',
+    'Unnamed: 1': 'CurrentYearInstant',
+    'Unnamed: 2': 'PriorYearInstant'
 }
 
 laporan_laba_rugi_pd.rename(columns=laba_rugi_rename_map, inplace=True)
 laporan_arus_kas_pd.rename(columns=arus_kas_rename_map, inplace=True)
 laporan_posisi_keuangan_pd.rename(columns=posisi_keuangan_rename_map, inplace=True)
+
+# Reorder columns to place 'ID' and 'emitent' first
+laporan_laba_rugi_pd = laporan_laba_rugi_pd[['ID', 'emitent', 'Laporan Laba Rugi', 'CurrentYearInstant', 'PriorYearInstant']]
+laporan_arus_kas_pd = laporan_arus_kas_pd[['ID', 'emitent', 'Laporan Arus Kas', 'CurrentYearInstant', 'PriorYearInstant']]
+laporan_posisi_keuangan_pd = laporan_posisi_keuangan_pd[['ID', 'emitent', 'Laporan Posisi Keuangan', 'CurrentYearInstant', 'PriorYearInstant']]
 
 # Convert Pandas DataFrames to Dask DataFrames
 laporan_laba_rugi = dd.from_pandas(laporan_laba_rugi_pd, npartitions=1)
