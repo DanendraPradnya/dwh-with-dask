@@ -1,25 +1,11 @@
 CREATE DATABASE financial_statement;
 
-CREATE TABLE laporan_laba_rugi (
+CREATE TABLE laporan_keuangan (
     ID INT PRIMARY KEY,
     emitent VARCHAR(255),
-    `Laporan Laba Rugi` VARCHAR(255),
+    LaporanKeuangan VARCHAR(50), -- Menunjukkan jenis laporan (Laba Rugi, Arus Kas, atau Posisi Keuangan)
+    LaporanDetail VARCHAR(255),
     CurrentYearInstant DECIMAL(20, 2),
     PriorYearInstant DECIMAL(20, 2)
 );
 
-CREATE TABLE laporan_arus_kas (
-    ID INT PRIMARY KEY,
-    emitent VARCHAR(255),
-    `Laporan Arus Kas` VARCHAR(255),
-    CurrentYearInstant DECIMAL(20, 2),
-    PriorYearInstant DECIMAL(20, 2)
-);
-
-CREATE TABLE laporan_posisi_keuangan (
-    ID INT PRIMARY KEY,
-    emitent VARCHAR(255),
-    `Laporan Posisi Keuangan` VARCHAR(255),
-    CurrentYearInstant DECIMAL(20, 2),
-    PriorYearInstant DECIMAL(20, 2)
-);

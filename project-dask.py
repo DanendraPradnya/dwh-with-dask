@@ -38,7 +38,7 @@ laporan_arus_kas_pd = truncate_column_names(laporan_arus_kas_pd)
 laporan_posisi_keuangan_pd = truncate_column_names(laporan_posisi_keuangan_pd)
 
 # Optionally drop unnecessary columns (add column names to drop as needed)
-laporan_laba_rugi_pd.drop(columns=['Unnamed: 3'], inplace=True)  # Example of dropping a column
+laporan_laba_rugi_pd.drop(columns=['Unnamed: 3'], inplace=True)
 laporan_arus_kas_pd.drop(columns=['Unnamed: 3'], inplace=True)
 laporan_posisi_keuangan_pd.drop(columns=['Unnamed: 3'], inplace=True)
 
@@ -52,36 +52,34 @@ laporan_laba_rugi_pd['emitent'] = emitent_value
 laporan_arus_kas_pd['emitent'] = emitent_value
 laporan_posisi_keuangan_pd['emitent'] = emitent_value
 
+# Add 'LaporanKeuangan' column to identify the type of financial report
+laporan_laba_rugi_pd['LaporanKeuangan'] = 'Laba Rugi'
+laporan_arus_kas_pd['LaporanKeuangan'] = 'Arus Kas'
+laporan_posisi_keuangan_pd['LaporanKeuangan'] = 'Posisi Keuangan'
+
 # Rename columns
 laba_rugi_rename_map = {
-    'Unnamed: 0': 'Laporan Laba Rugi',
+    'Unnamed: 0': 'LaporanDetail',
     'Unnamed: 1': 'CurrentYearInstant',
     'Unnamed: 2': 'PriorYearInstant'
 }
-arus_kas_rename_map = {
-    'Unnamed: 0': 'Laporan Arus Kas',
-    'Unnamed: 1': 'CurrentYearInstant',
-    'Unnamed: 2': 'PriorYearInstant'
-}
-posisi_keuangan_rename_map = {
-    'Unnamed: 0': 'Laporan Posisi Keuangan',
-    'Unnamed: 1': 'CurrentYearInstant',
-    'Unnamed: 2': 'PriorYearInstant'
-}
+arus_kas_rename_map = laba_rugi_rename_map
+posisi_keuangan_rename_map = laba_rugi_rename_map
 
 laporan_laba_rugi_pd.rename(columns=laba_rugi_rename_map, inplace=True)
 laporan_arus_kas_pd.rename(columns=arus_kas_rename_map, inplace=True)
 laporan_posisi_keuangan_pd.rename(columns=posisi_keuangan_rename_map, inplace=True)
 
-# Reorder columns to place 'ID' and 'emitent' first
-laporan_laba_rugi_pd = laporan_laba_rugi_pd[['ID', 'emitent', 'Laporan Laba Rugi', 'CurrentYearInstant', 'PriorYearInstant']]
-laporan_arus_kas_pd = laporan_arus_kas_pd[['ID', 'emitent', 'Laporan Arus Kas', 'CurrentYearInstant', 'PriorYearInstant']]
-laporan_posisi_keuangan_pd = laporan_posisi_keuangan_pd[['ID', 'emitent', 'Laporan Posisi Keuangan', 'CurrentYearInstant', 'PriorYearInstant']]
+# Reorder columns to place 'ID', 'emitent', and 'LaporanKeuangan' first
+laporan_laba_rugi_pd = laporan_laba_rugi_pd[['ID', 'emitent', 'LaporanKeuangan', 'LaporanDetail', 'CurrentYearInstant', 'PriorYearInstant']]
+laporan_arus_kas_pd = laporan_arus_kas_pd[['ID', 'emitent', 'LaporanKeuangan', 'LaporanDetail', 'CurrentYearInstant', 'PriorYearInstant']]
+laporan_posisi_keuangan_pd = laporan_posisi_keuangan_pd[['ID', 'emitent', 'LaporanKeuangan', 'LaporanDetail', 'CurrentYearInstant', 'PriorYearInstant']]
 
-# Convert Pandas DataFrames to Dask DataFrames
-laporan_laba_rugi = dd.from_pandas(laporan_laba_rugi_pd, npartitions=1)
-laporan_arus_kas = dd.from_pandas(laporan_arus_kas_pd, npartitions=1)
-laporan_posisi_keuangan = dd.from_pandas(laporan_posisi_keuangan_pd, npartitions=1)
+# Concatenate all DataFrames into one
+combined_df = pd.concat([laporan_laba_rugi_pd, laporan_arus_kas_pd, laporan_posisi_keuangan_pd])
+
+# Convert the combined Pandas DataFrame to a Dask DataFrame
+combined_dask_df = dd.from_pandas(combined_df, npartitions=1)
 
 # Define the MySQL database connection
 db_config = {
@@ -98,11 +96,9 @@ except Exception as e:
     logger.error(f"Failed to create database engine: {e}")
     exit(1)
 
-# Save Dask DataFrames to MySQL
+# Save the combined Dask DataFrame to MySQL
 try:
-    laporan_laba_rugi.compute().to_sql('laporan_laba_rugi', con=engine, if_exists='replace', index=False)
-    laporan_arus_kas.compute().to_sql('laporan_arus_kas', con=engine, if_exists='replace', index=False)
-    laporan_posisi_keuangan.compute().to_sql('laporan_posisi_keuangan', con=engine, if_exists='replace', index=False)
-    logger.info("Data berhasil disimpan ke dalam database MySQL.")
+    combined_dask_df.compute().to_sql('laporan_keuangan', con=engine, if_exists='replace', index=False)
+    logger.info("Data berhasil disimpan ke dalam tabel laporan_keuangan di database MySQL.")
 except Exception as e:
-    logger.error(f"Failed to save DataFrames to MySQL: {e}")
+    logger.error(f"Failed to save DataFrame to MySQL: {e}")
