@@ -1,89 +1,85 @@
-import pdfplumber
-import pandas as pd
 import dask.dataframe as dd
+import pandas as pd
+from sqlalchemy import create_engine
+import logging
 
-def clean_numeric_value(value):
-    """Cleans numeric values by removing commas and converting negative values."""
-    return value.replace(',', '').replace('(', '-').replace(')', '')
+# Set up logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-def extract_financial_data(pdf_path):
-    """Extracts financial data from a PDF and organizes it into a dictionary."""
-    financial_data = {
-        'Posisi Keuangan': [],
-        'Laba Rugi': [],
-        'Arus Kas': []
-    }
-    
-    with pdfplumber.open(pdf_path) as pdf:
-        for page in pdf.pages:
-            text = page.extract_text()
-            table = page.extract_table()
+# Load the Excel file
+file_path = 'Data/FinancialStatement-2024-I-ACES.xlsx'
 
-            # Check if the page has a table and is relevant
-            if table and len(table) > 1:
-                headers = table[0]  # Assume the first row is the header
+# Read the sheets into Pandas DataFrames
+try:
+    laporan_laba_rugi_pd = pd.read_excel(file_path, sheet_name='1311000', header=1)  # Use header=1 to skip unnecessary rows
+    laporan_arus_kas_pd = pd.read_excel(file_path, sheet_name='1510000', header=1)
+    laporan_posisi_keuangan_pd = pd.read_excel(file_path, sheet_name='1210000', header=1)
+except Exception as e:
+    logger.error(f"Failed to read Excel file: {e}")
+    exit(1)
 
-                # Determine the type of financial statement
-                if "Statement of financial position" in text:
-                    section = 'Posisi Keuangan'
-                elif "Statement of profit or loss" in text:
-                    section = 'Laba Rugi'
-                elif "Statement of cash flows" in text:
-                    section = 'Arus Kas'
-                else:
-                    continue  # Skip pages that do not match any section
-                
-                # Append data rows to the appropriate section
-                for row in table[1:]:
-                    if len(row) == len(headers):  # Ensure row matches header length
-                        try:
-                            row_data = {headers[i]: clean_numeric_value(row[i]) for i in range(len(headers))}
-                            financial_data[section].append(row_data)
-                        except Exception as e:
-                            print(f"Error processing row: {row} - {e}")
-    
-    return financial_data
+# Function to truncate or rename column names to avoid MySQL identifier length issue
+def truncate_column_names(df, max_length=64):
+    df.columns = [col[:max_length] if len(col) > max_length else col for col in df.columns]
+    return df
 
-def create_dask_dataframes(financial_data):
-    """Creates Dask DataFrames from the financial data dictionary."""
-    dask_dfs = {}
-    
-    for report_type, data in financial_data.items():
-        if data:
-            pdf = pd.DataFrame(data)
-            ddf = dd.from_pandas(pdf, npartitions=2)
-            dask_dfs[report_type] = ddf
-            
-    return dask_dfs
+# Truncate column names for each DataFrame
+laporan_laba_rugi_pd = truncate_column_names(laporan_laba_rugi_pd)
+laporan_arus_kas_pd = truncate_column_names(laporan_arus_kas_pd)
+laporan_posisi_keuangan_pd = truncate_column_names(laporan_posisi_keuangan_pd)
 
-def export_to_excel(dask_dfs, output_path):
-    """Exports Dask DataFrames to an Excel file with each report type on a separate sheet."""
-    try:
-        with pd.ExcelWriter(output_path, engine='openpyxl') as writer:
-            data_written = False  # Track if any data was written
-            
-            for report_type, ddf in dask_dfs.items():
-                df = ddf.compute()  # Convert Dask DataFrame to Pandas DataFrame
-                if not df.empty:
-                    
-                    # Write to Excel with header
-                    df.to_excel(writer, sheet_name=report_type, index=False)
-                    data_written = True
-            
-            # If no data was written, add a default sheet
-            if not data_written:
-                pd.DataFrame(["No data available"]).to_excel(writer, sheet_name="No Data", index=False)
-                
-    except Exception as e:
-        print(f"Failed to export to Excel: {e}")
+# Optionally drop unnecessary columns (add column names to drop as needed)
+laporan_laba_rugi_pd.drop(columns=['Unnamed: 3'], inplace=True)  # Example of dropping a column
+laporan_arus_kas_pd.drop(columns=['Unnamed: 3'], inplace=True)
+laporan_posisi_keuangan_pd.drop(columns=['Unnamed: 3'], inplace=True)
 
-# File input and output paths
-pdf_path = "C:/Users/Lenovo/Documents/DWH/project-dask/Data/FinancialStatement-2024-II-BBRI.pdf"
-output_path = "Laporan_Keuangan_BBRI_2024.xlsx"
+# Rename
+laba_rugi_rename_map = {
+'Unnamed: 0':'Laporan Laba Rugi',
+'Unnamed: 1':'CurrentYearInstant',
+'Unnamed: 2':'PriorYearInstant'
+}
+arus_kas_rename_map = {
+'Unnamed: 0':'Laporan Arus Kas',
+'Unnamed: 1':'CurrentYearInstant',
+'Unnamed: 2':'PriorYearInstant'
+}
+posisi_keuangan_rename_map = {
+'Unnamed: 0':'Laporan Posisi Keuangan',
+'Unnamed: 1':'CurrentYearInstant',
+'Unnamed: 2':'PriorYearInstant'
+}
 
-# Extract, process, and export data to Excel
-financial_data = extract_financial_data(pdf_path)
-dask_dfs = create_dask_dataframes(financial_data)
-export_to_excel(dask_dfs, output_path)
+laporan_laba_rugi_pd.rename(columns=laba_rugi_rename_map, inplace=True)
+laporan_arus_kas_pd.rename(columns=arus_kas_rename_map, inplace=True)
+laporan_posisi_keuangan_pd.rename(columns=posisi_keuangan_rename_map, inplace=True)
 
-print(f"Data telah berhasil diekspor ke {output_path}")
+# Convert Pandas DataFrames to Dask DataFrames
+laporan_laba_rugi = dd.from_pandas(laporan_laba_rugi_pd, npartitions=1)
+laporan_arus_kas = dd.from_pandas(laporan_arus_kas_pd, npartitions=1)
+laporan_posisi_keuangan = dd.from_pandas(laporan_posisi_keuangan_pd, npartitions=1)
+
+# Define the MySQL database connection
+db_config = {
+    'host': 'localhost',
+    'user': 'root',
+    'password': '',
+    'database': 'financial_statement'
+}
+
+# Create SQLAlchemy engine
+try:
+    engine = create_engine(f"mysql+pymysql://{db_config['user']}:{db_config['password']}@{db_config['host']}/{db_config['database']}")
+except Exception as e:
+    logger.error(f"Failed to create database engine: {e}")
+    exit(1)
+
+# Save Dask DataFrames to MySQL
+try:
+    laporan_laba_rugi.compute().to_sql('laporan_laba_rugi', con=engine, if_exists='replace', index=False)
+    laporan_arus_kas.compute().to_sql('laporan_arus_kas', con=engine, if_exists='replace', index=False)
+    laporan_posisi_keuangan.compute().to_sql('laporan_posisi_keuangan', con=engine, if_exists='replace', index=False)
+    logger.info("Data berhasil disimpan ke dalam database MySQL.")
+except Exception as e:
+    logger.error(f"Failed to save DataFrames to MySQL: {e}")
