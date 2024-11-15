@@ -72,23 +72,22 @@ laporan_laba_rugi_pd = excel_to_dataframe(file_path, 'Laba Rugi', '1311000')
 laporan_arus_kas_pd = excel_to_dataframe(file_path, 'Arus Kas', '1510000')
 laporan_posisi_keuangan_pd = excel_to_dataframe(file_path, 'Posisi Keuangan', '1210000')
 
-# Add an ID column to each DataFrame
-laporan_laba_rugi_pd['ID'] = range(1, len(laporan_laba_rugi_pd) + 1)
-laporan_arus_kas_pd['ID'] = range(1, len(laporan_arus_kas_pd) + 1)
-laporan_posisi_keuangan_pd['ID'] = range(1, len(laporan_posisi_keuangan_pd) + 1)
-
 # Add the 'emitent' column with the extracted value
 laporan_laba_rugi_pd['emitent'] = emitent_value
 laporan_arus_kas_pd['emitent'] = emitent_value
 laporan_posisi_keuangan_pd['emitent'] = emitent_value
 
-# Reorder columns to make sure 'ID' and 'emitent' come first
-laporan_laba_rugi_pd = laporan_laba_rugi_pd[['ID', 'emitent', 'grup_lk', 'LaporanDetail', 'CurrentYearInstant', 'PriorYearInstant']]
-laporan_arus_kas_pd = laporan_arus_kas_pd[['ID', 'emitent', 'grup_lk', 'LaporanDetail', 'CurrentYearInstant', 'PriorYearInstant']]
-laporan_posisi_keuangan_pd = laporan_posisi_keuangan_pd[['ID', 'emitent', 'grup_lk', 'LaporanDetail', 'CurrentYearInstant', 'PriorYearInstant']]
-
 # Concatenate all DataFrames into one
 combined_df = pd.concat([laporan_laba_rugi_pd, laporan_arus_kas_pd, laporan_posisi_keuangan_pd])
+
+# Reset the index to ensure unique, sequential 'ID' values across the combined DataFrame
+combined_df.reset_index(drop=True, inplace=True)
+
+# Add a new 'ID' column, which is the row number + 1 (start from 1)
+combined_df['ID'] = combined_df.index + 1
+
+# Reorder the columns to place 'ID' at the beginning
+combined_df = combined_df[['ID', 'emitent', 'grup_lk', 'LaporanDetail', 'CurrentYearInstant', 'PriorYearInstant']]
 
 # Convert the combined DataFrame to Dask DataFrame
 combined_dask_df = dd.from_pandas(combined_df, npartitions=1)
