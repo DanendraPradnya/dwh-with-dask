@@ -39,8 +39,6 @@ def determine_quarter(date_str):
         'Juli': 7, 'Agustus': 8, 'September': 9,
         'Oktober': 10, 'November': 11, 'Desember': 12
     }
-    
-    # Adjusting the regex pattern to capture the "Per DD Month YYYY" format
     match = re.search(r'Per (\d{1,2}) (\w+) (\d{4})', date_str)
     if match:
         _, month, year = match.groups()
@@ -58,19 +56,19 @@ def extract_section(text, start_marker, end_marker):
         return text[start + len(start_marker):end].strip()
     return ""
 
-def text_to_dataframe(text, grup_lk_label, source_label, quarter):
+def text_to_dataframe(text, grup_lk_label, quarter):
     """Convert structured text to a DataFrame."""
     data = []
     lines = text.split('\n')
     for line in lines:
         match = re.match(r"(.+?)\s+([\d,.]+)\s*(.*)", line)
         if match:
-            item, value, notes = match.groups()
-            data.append([grup_lk_label, source_label, clean_text(item, max_length=255), 
-                         float(value.replace(",", "")), clean_text(notes), quarter])
+            item, value, _ = match.groups()
+            data.append([grup_lk_label, clean_text(item, max_length=255), 
+                         float(value.replace(",", "")), quarter])
     if not data:
         logger.warning("No data extracted from text.")
-    return pd.DataFrame(data, columns=['grup_lk', 'source', 'item', 'value', 'notes', 'quarter'])
+    return pd.DataFrame(data, columns=['grup_lk', 'item', 'value', 'quarter'])
 
 def extract_pdf_data(pdf_path):
     """Extract data and quarter information from a PDF."""
@@ -79,7 +77,6 @@ def extract_pdf_data(pdf_path):
             pages = pdf.pages
             text_data = "".join([page.extract_text() for page in pages])
         
-        # Look for the date in the format 'Per 31 Desember 2023'
         date_match = re.search(r'Per \d{1,2} \w+ \d{4}', text_data)
         quarter = determine_quarter(date_match.group(0)) if date_match else 'Unknown'
         
@@ -88,9 +85,9 @@ def extract_pdf_data(pdf_path):
         neraca = extract_section(text_data, "Laporan neraca", "Catatan atas laporan")
         
         pdf_dfs = {
-            'Laba Rugi': text_to_dataframe(laba_rugi, 'Laba Rugi', 'PDF', quarter),
-            'Arus Kas': text_to_dataframe(arus_kas, 'Arus Kas', 'PDF', quarter),
-            'Neraca': text_to_dataframe(neraca, 'Posisi Keuangan', 'PDF', quarter)
+            'Laba Rugi': text_to_dataframe(laba_rugi, 'Laba Rugi', quarter),
+            'Arus Kas': text_to_dataframe(arus_kas, 'Arus Kas', quarter),
+            'Neraca': text_to_dataframe(neraca, 'Posisi Keuangan', quarter)
         }
         return pd.concat(pdf_dfs.values(), ignore_index=True)
     except Exception as e:
@@ -109,14 +106,12 @@ def process_excel(file_path):
     def excel_to_dataframe(sheet_name, grup_lk_label):
         try:
             df = pd.read_excel(file_path, sheet_name=sheet_name, header=1)
-            df.rename(columns={df.columns[0]: 'notes', df.columns[1]: 'CurrentYearInstant', df.columns[2]: 'PriorYearInstant'}, inplace=True)
+            df.rename(columns={df.columns[0]: 'item', df.columns[1]: 'value'}, inplace=True)
             df['grup_lk'] = grup_lk_label
-            df['source'] = 'Excel'
-            df['notes'] = df['notes'].apply(lambda x: clean_text(x, max_length=255))
-            df['CurrentYearInstant'] = pd.to_numeric(df['CurrentYearInstant'], errors='coerce').fillna(0)
-            df['PriorYearInstant'] = pd.to_numeric(df['PriorYearInstant'], errors='coerce').fillna(0)
+            df['item'] = df['item'].apply(lambda x: clean_text(x, max_length=255))
+            df['value'] = pd.to_numeric(df['value'], errors='coerce').fillna(0)
             df['emitent'] = emitent_value
-            return df[['grup_lk', 'source', 'notes', 'CurrentYearInstant', 'PriorYearInstant', 'emitent']]
+            return df[['grup_lk', 'item', 'value', 'emitent']]
         except Exception as e:
             logger.error("Error processing sheet %s: %s", sheet_name, e)
             return pd.DataFrame()
@@ -135,6 +130,12 @@ excel_data = process_excel(excel_path)
 
 # Combine all data into a single DataFrame
 combined_df = pd.concat([pdf_data, excel_data], ignore_index=True)
+
+# Add ID column for numbering starting from 1
+combined_df['ID'] = pd.Series(range(1, len(combined_df) + 1))
+
+# Move ID and emitent columns to the first and second positions respectively
+combined_df = combined_df[['ID', 'emitent'] + [col for col in combined_df.columns if col not in ['ID', 'emitent']]]
 
 # Convert to Dask DataFrame and save to MySQL
 dask_df = dd.from_pandas(combined_df, npartitions=1)
