@@ -10,7 +10,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # File paths
-pdf_path = r"C:\Users\Sgrtamade\Kuliah\Pangkalan Data\dwh-with-dask\Data\PT Ace Hardware Indonesia GA 31 Des 2023.pdf"
+pdf_path = 'Data/PT Ace Hardware Indonesia GA 31 Des 2023.pdf'
 excel_path = 'Data/FinancialStatement-2024-I-ACES.xlsx'
 
 # Database configuration
@@ -32,20 +32,24 @@ def clean_text(text, max_length=None):
     return cleaned_text.strip()
 
 def determine_quarter(date_str):
-    """Determine the quarter from a date string in the format 'Per 31 Desember 2023'."""
+    """Determine the quarter from a date string in the format 'Per 31 Desember 2023 dan 2022'."""
+    logger.info(f"Processing date string: {date_str}")
     month_map = {
         'Januari': 1, 'Februari': 2, 'Maret': 3,
         'April': 4, 'Mei': 5, 'Juni': 6,
         'Juli': 7, 'Agustus': 8, 'September': 9,
         'Oktober': 10, 'November': 11, 'Desember': 12
     }
-    match = re.search(r'Per (\d{1,2}) (\w+) (\d{4})', date_str)
+    match = re.search(r'Per (\d{1,2}) (\w+) (\d{4})(?: dan \d{4})?', date_str)
     if match:
         _, month, year = match.groups()
-        month_num = month_map.get(month, 0)
+        month_num = month_map.get(month.capitalize(), 0)
         if month_num:
             quarter = (month_num - 1) // 3 + 1
-            return f"Q{quarter} {year}"
+            result = f"Q{quarter} {year}"
+            logger.info(f"Determined quarter: {result}")
+            return result
+    logger.warning("Failed to determine quarter. Returning 'Unknown'.")
     return 'Unknown'
 
 def extract_section(text, start_marker, end_marker):
@@ -58,6 +62,7 @@ def extract_section(text, start_marker, end_marker):
 
 def text_to_dataframe(text, grup_lk_label, quarter):
     """Convert structured text to a DataFrame."""
+    logger.info(f"Processing text for {grup_lk_label}: {text[:500]}")  # Log the first 500 characters of the section
     data = []
     lines = text.split('\n')
     for line in lines:
@@ -66,9 +71,13 @@ def text_to_dataframe(text, grup_lk_label, quarter):
             item, value, _ = match.groups()
             data.append([grup_lk_label, clean_text(item, max_length=255), 
                          float(value.replace(",", "")), quarter])
+        else:
+            logger.warning(f"No match found for line: {line}")  # Log lines that do not match
     if not data:
         logger.warning("No data extracted from text.")
-    return pd.DataFrame(data, columns=['grup_lk', 'item', 'value', 'quarter'])
+    df = pd.DataFrame(data, columns=['grup_lk', 'item', 'value', 'quarter'])
+    logger.info(f"DataFrame created: {df.head()}")  # Log the DataFrame created
+    return df
 
 def extract_pdf_data(pdf_path):
     """Extract data and quarter information from a PDF."""
@@ -77,17 +86,36 @@ def extract_pdf_data(pdf_path):
             pages = pdf.pages
             text_data = "".join([page.extract_text() for page in pages])
         
-        date_match = re.search(r'Per \d{1,2} \w+ \d{4}', text_data)
-        quarter = determine_quarter(date_match.group(0)) if date_match else 'Unknown'
+        logger.info(f"Extracted text from PDF: {text_data[:500]}")  # Log the first 500 characters of extracted text
+
+        # Extract all date strings
+        date_matches = re.findall(r'Per \d{1,2} \w+ \d{4}(?: dan \d{4})?', text_data)
+        quarters = []
+        for date_str in date_matches:
+            logger.info(f"Extracted date string: {date_str}")  # Log each extracted date string
+            quarter = determine_quarter(date_str)
+            logger.info(f"Quarter determined for '{date_str}': {quarter}")  # Log the determined quarter
+            quarters.append(quarter)
         
+        # Check if any quarters were found
+        if quarters:
+            logger.info(f"Quarters found: {quarters}")  # Log all found quarters
+            quarter = quarters[-1]  # Use the latest quarter found
+        else:
+            logger.warning("No quarters found. Setting quarter to 'Unknown'.")
+            quarter = 'Unknown'
+        
+        logger.info(f"Final determined quarter: {quarter}")  # Log the final quarter
+
         laba_rugi = extract_section(text_data, "Laporan laba rugi", "Laporan arus kas")
+        logger.info(f"Laba Rugi section: {laba_rugi[:500]}")  # Log the first 500 characters of the Laba Rugi section
         arus_kas = extract_section(text_data, "Laporan arus kas", "Laporan neraca")
         neraca = extract_section(text_data, "Laporan neraca", "Catatan atas laporan")
         
         pdf_dfs = {
             'Laba Rugi': text_to_dataframe(laba_rugi, 'Laba Rugi', quarter),
             'Arus Kas': text_to_dataframe(arus_kas, 'Arus Kas', quarter),
-            'Neraca': text_to_dataframe(neraca, 'Posisi Keuangan', quarter)
+            ' Neraca': text_to_dataframe(neraca, 'Posisi Keuangan', quarter)
         }
         return pd.concat(pdf_dfs.values(), ignore_index=True)
     except Exception as e:
@@ -111,7 +139,8 @@ def process_excel(file_path):
             df['item'] = df['item'].apply(lambda x: clean_text(x, max_length=255))
             df['value'] = pd.to_numeric(df['value'], errors='coerce').fillna(0)
             df['emitent'] = emitent_value
-            return df[['grup_lk', 'item', 'value', 'emitent']]
+            df['quarter'] = 'Q1 2024'  # Example: Assign quarter (adjust accordingly)
+            return df[['grup_lk', 'item', 'value', 'emitent', 'quarter']]
         except Exception as e:
             logger.error("Error processing sheet %s: %s", sheet_name, e)
             return pd.DataFrame()
@@ -128,8 +157,16 @@ def process_excel(file_path):
 pdf_data = extract_pdf_data(pdf_path)
 excel_data = process_excel(excel_path)
 
+# Fill any missing quarter values with 'Unknown' before combining
+pdf_data['quarter'] = pdf_data['quarter'].fillna('Unknown')
+excel_data['quarter'] = excel_data['quarter'].fillna('Unknown')
+
 # Combine all data into a single DataFrame
 combined_df = pd.concat([pdf_data, excel_data], ignore_index=True)
+
+# Log the combined DataFrame before saving
+logger.info(f"Combined DataFrame: {combined_df.head()}")
+logger.info(f"Unique quarters: {combined_df['quarter'].unique()}")
 
 # Add ID column for numbering starting from 1
 combined_df['ID'] = pd.Series(range(1, len(combined_df) + 1))
@@ -145,3 +182,4 @@ try:
     logger.info("Data successfully saved to the MySQL database.")
 except Exception as e:
     logger.error("Failed to save to MySQL: %s", e)
+    logger.info(f"Data being inserted:\n{combined_df.head()}")
