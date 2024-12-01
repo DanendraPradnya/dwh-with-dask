@@ -11,8 +11,8 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # File paths
-pdf_path = 'C:/Users/Sgrtamade/Kuliah/Pangkalan Data/dwh-with-dask/Data/PT-Ace-Hardware-Indonesia-GA-31-Des-2023.pdf'
-excel_path = 'C:/Users/Sgrtamade/Kuliah/Pangkalan Data/dwh-with-dask/Data/FinancialStatement-2024-I-ACES.xlsx'
+pdf_path = 'D:/001Lessons/DWH/dwh-with-dask/Data/PT Ace Hardware Indonesia GA 31 Des 2023.pdf'
+excel_path = 'D:/001Lessons/DWH/dwh-with-dask/Data/FinancialStatement-2024-I-ACES.xlsx'
 
 # Database configuration
 db_config = {
